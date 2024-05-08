@@ -168,22 +168,21 @@ void ClientConnection::WaitForRequests() {
                 fprintf(fd, "530 Not logged in.\n");
                 parar = true;
             }
-        }else if (COMMAND("PORT")) {
-	    parar = false;
-    	    
-        unsigned int ip[4];
-        unsigned int port[2];
+        } else if (COMMAND("PORT")) {
+            parar = false;
+                
+            unsigned int ip[4];
+            unsigned int port[2];
 
-        fscanf(fd, "%d,%d,%d,%d,%d,%d", &ip[0], &ip[1], &ip[2], &ip[3], &port[0], &port[1]);
+            fscanf(fd, "%d,%d,%d,%d,%d,%d", &ip[0], &ip[1], &ip[2], &ip[3], &port[0], &port[1]);
 
-        uint32_t ip_addr = ip[3]<<24 | ip[2]<<16 | ip[1]<<8 | ip[0];
-        uint16_t port_v = port[0] << 8 | port[1];
-        
-        data_socket = connect_TCP(ip_addr,port_v);
+            uint32_t ip_addr = ip[3]<<24 | ip[2]<<16 | ip[1]<<8 | ip[0];
+            uint16_t port_v = port[0] << 8 | port[1];
+            
+            data_socket = connect_TCP(ip_addr,port_v);
 
         fprintf(fd, "200 Okey\n");
-      }
-        else if (COMMAND("PASV")) { 
+        } else if (COMMAND("PASV")) { 
             int s = define_socket_TCP(0);
 
             struct sockaddr_in addr;
@@ -211,8 +210,7 @@ void ClientConnection::WaitForRequests() {
                 return;
             }
             data_socket = result;
-        }
-        else if (COMMAND("STOR") ) {
+        } else if (COMMAND("STOR") ) {
             fscanf(fd, "%s", arg);
             fprintf(fd, "150 File status okay; about to open data connection.\n"); 
             fflush(fd);
@@ -238,55 +236,35 @@ void ClientConnection::WaitForRequests() {
             fclose(f);
             close(data_socket);
             fflush(fd);
-        }
-        else if (COMMAND("LIST")) {
-        int pipefd[2];
-        if (pipe(pipefd) == -1) {
-            fprintf(fd, "450 Requested file action not taken. Internal server error.\n");
+        } else if (COMMAND("LIST")) {
+            fprintf(fd, "150 Here comes the directory listing.\n");
             fflush(fd);
-            return;
-        }
 
-        pid_t pid = fork();
-        if (pid == -1) {
-            fprintf(fd, "450 Requested file action not taken. Internal server error.\n");
-            fflush(fd);
-            return;
-        }
-
-        char buffer[MAX_BUFF];
-
-        if (pid == 0) { // Proceso hijo
-            close(pipefd[0]); // Cerramos la lectura del pipe
-            // Redirigimos la salida estándar y el error estándar al pipe
-            dup2(pipefd[1], STDOUT_FILENO);
-            dup2(pipefd[1], STDERR_FILENO);
-            close(pipefd[1]); // Cerramos el extremo de escritura del pipe
-
-            // Ejecutamos el comando ls con la opción "-1" para desactivar la paginación
-            execlp("ls", "ls", "-1", NULL);
-            // Si execlp falla, se ejecuta esta línea
-            fprintf(stderr, "Error en execlp\n");
-            exit(EXIT_FAILURE);
-        } else { // Proceso padre
-            close(pipefd[1]); // Cerramos la escritura del pipe en el padre
-            ssize_t bytes_read;
-            // Leemos los datos del pipe
-            while ((bytes_read = read(pipefd[0], buffer, sizeof(buffer))) > 0) {
-                // Escribimos los datos leídos en el socket de control del cliente
-                write(fileno(fd), buffer, bytes_read);
+            if(data_socket < 0) {
+                fprintf(fd, "425 Can't open data connection.\n");
+                fflush(fd);
+                return;
             }
-            // Cerramos el extremo de lectura del pipe
-            close(pipefd[0]);
-            // Esperamos a que el proceso hijo termine
-            wait(NULL);
-            // Enviamos un mensaje de éxito al cliente
-            fprintf(fd, "250 Requested file action okay, completed\n");
-            fflush(fd);
-        }
-    }
 
-        else if (COMMAND("RETR")) {
+            DIR *d;
+            struct dirent *dir;
+            d = opendir("."); // Abre el directorio actual
+            if (d) {
+                while ((dir = readdir(d)) != NULL) {
+                    // Ignora los directorios '.' y '..'
+                    if (strcmp(dir->d_name, ".") != 0 && strcmp(dir->d_name, "..") != 0) {
+                        // Envía el nombre del archivo por el socket de datos
+                        dprintf(data_socket, "%s\r\n", dir->d_name);
+                    }
+                }
+                closedir(d); // Cierra el directorio
+                fprintf(fd, "226 Directory send OK.\n");
+            } else {
+                fprintf(fd, "550 Failed to list directory.\n");
+            }
+            fflush(fd);
+            close(data_socket); // Cierra el socket de datos
+        }  else if (COMMAND("RETR")) {
             fscanf(fd, "%s", arg);
             FILE *f= fopen(arg, "r");
             if(f!= NULL)
@@ -311,30 +289,21 @@ void ClientConnection::WaitForRequests() {
                 fflush(fd);
                 close(data_socket);
             }
-        }	
-      else if (COMMAND("SYST")) {
-        fprintf(fd, "215 UNIX Type: L8.\n");   
-      }
-
-      else if (COMMAND("TYPE")) {
-	  fscanf(fd, "%s", arg);
-	  fprintf(fd, "200 OK\n");   
-      }
-     
-      else if (COMMAND("QUIT")) {
-        fprintf(fd, "221 Service closing control connection. Logged out if appropriate.\n");
-        close(data_socket);	
-        parar=true;
-        break;
-      }
-  
-      else  {
-	    fprintf(fd, "502 Command not implemented.\n"); fflush(fd);
-	    printf("Comando : %s %s\n", command, arg);
-	    printf("Error interno del servidor\n");
-	
-      }
-      
+        } else if (COMMAND("SYST")) {
+            fprintf(fd, "215 UNIX Type: L8.\n");   
+        } else if (COMMAND("TYPE")) {
+            fscanf(fd, "%s", arg);
+            fprintf(fd, "200 OK\n");   
+        } else if (COMMAND("QUIT")) {
+            fprintf(fd, "221 Service closing control connection. Logged out if appropriate.\n");
+            close(data_socket);	
+            parar=true;
+            break;
+        } else  {
+            fprintf(fd, "502 Command not implemented.\n"); fflush(fd);
+            printf("Comando : %s %s\n", command, arg);
+            printf("Error interno del servidor\n");
+        }
     }
     
     fclose(fd);
