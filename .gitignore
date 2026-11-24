@@ -1,0 +1,17 @@
+# Objetos y ejecutables compilados (no se suben a GitHub)
+*.o
+*.out
+obj/
+build/
+bin/
+
+# Ejecutables de estos proyectos
+hormiga
+ftp_server
+
+# Salidas generadas
+output/
+
+# Editor / sistema
+.vscode/
+.DS_Store
